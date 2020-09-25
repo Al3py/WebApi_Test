@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+using RestSharp;
 using WebApi_test.Clases;
 
 namespace WebApi_test.Controllers
@@ -11,9 +13,6 @@ namespace WebApi_test.Controllers
     [ApiController]
     public class NoticiasController : ControllerBase
     {
-        private string imagen = "https://www.abc.com.py/resizer/xQOy3oSO0PH_soYZZiFQ73_fUHo=/fit-in/770x495/smart/cloudfront-us-east-1.images.arcpublishing.com/abccolor/GJTXDNXEPRAEJNMRXP2BEFM6LE.jpg";
-        private string enlace = "https://www.abc.com.py/internacionales/2020/09/22/descubren-una-nueva-alteracion-en-el-cerebro-de-las-personas-con-alzheimer/";
-
         /// <summary>
         /// Metodo que obtiene todas las noticias
         /// </summary>
@@ -38,11 +37,12 @@ namespace WebApi_test.Controllers
                 if (string.IsNullOrEmpty(q))
                     return BadRequest(new { codigo = "g268", error = "Parámetros inválidos" });
 
-                var noticias = Noticias(f).FindAll(x => x.titulo.Contains(q) || x.resumen.Contains(q));
-
-                if (noticias?.Count == 0)
+                //var noticias = Noticias(f).FindAll(x => x.titulo.Contains(q) || x.resumen.Contains(q));
+                var noticias = prueba(q, f);
+                
+                if (noticias?.data?.Count == 0)
                     return NotFound(new { codigo = "g267", error = $"No se encuentran noticias para el texto: {q}" });
-
+                
                 return Ok(noticias);
             }
             catch (Exception)
@@ -51,27 +51,35 @@ namespace WebApi_test.Controllers
             }
         }
 
-        private List<Noticia> Noticias(bool descargar)
+        private DatosNoticia prueba(string busqueda, bool descargar)
         {
-            var noticias = new List<Noticia>();
+            string urlBusqueda = "https://www.abc.com.py/buscar/";
 
-            for (int i = 0; i < 5; i++)
-            {
-                var foto = descargar ? new WebClient().DownloadData(new Uri(imagen)) : null;
+            var client  = new RestClient($"{urlBusqueda}{busqueda.Replace(" ","%20")}");
+            var request = new RestRequest(Method.GET);
 
-                noticias.Add(new Noticia
+            IRestResponse response = client.Execute(request);
+
+            var datos = response.Content;
+
+            datos = datos.Substring(datos.IndexOf("globalContent=") + 14);
+            datos = datos.Substring(0, datos.IndexOf(";"));
+
+            var prueba = JsonConvert.DeserializeObject<DatosNoticia>(datos);
+
+            if (descargar)
+                foreach (var item in prueba.data)
                 {
-                    fecha             = DateTime.Now,
-                    titulo            = $"Encabezado {i}",
-                    resumen           = $"resumen {i}",
-                    enlace_foto       = imagen,
-                    contenido_foto    = descargar ? Convert.ToBase64String(foto) : string.Empty,
-                    enlace            = enlace,
-                    content_type_foto = descargar ? GetContentType(imagen) : string.Empty
-                });
-            }
+                    if (!string.IsNullOrEmpty(item.promo_items.basic.url))
+                    {
+                        var foto = new WebClient().DownloadData(new Uri(item.promo_items.basic.url));
 
-            return noticias;
+                        item.ImagenBase64 = Convert.ToBase64String(foto);
+                        item.ContentType  = GetContentType(item.promo_items.basic.url);
+                    }
+                }
+
+            return prueba;
         }
 
         /// <summary>
